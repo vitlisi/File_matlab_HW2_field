@@ -1,0 +1,249 @@
+
+clear; clc; close all;
+
+%% Parametri di controllo
+k1 = 1.0;
+k2 = 1.0;
+k3 = 0.5;
+
+%% Configurazione iniziale e conversione in coordinate polari
+% Per esercizio 4: α = 6
+alpha_digit = 2;
+q_i = [alpha_digit + 1; 1; pi/4];   % q_i = [8; 1; π/4]
+q_f = [0; 0; 0];                    % configurazione finale
+
+% Estrazione delle coordinate cartesiane iniziali
+x_i = q_i(1);
+y_i = q_i(2);
+theta_i = q_i(3);
+
+% Conversione in coordinate polari:
+%     ρ = sqrt(x^2 + y^2)
+%     γ = wrapToPi(atan2(y,x) - θ)
+%     δ = wrapToPi(γ + θ)
+rho0   = sqrt(x_i^2 + y_i^2);
+gamma0 = wrapToPi(atan2(y_i, x_i) - theta_i);
+delta0 = wrapToPi(gamma0 + theta_i);
+
+x0 = [rho0; gamma0; delta0];
+
+fprintf('Configurazione cartesiana iniziale: [%.2f, %.2f, %.2f]\n', x_i, y_i, theta_i);
+fprintf('Conversione in coordinate polari: ρ = %.4f,  γ = %.4f,  δ = %.4f\n\n', rho0, gamma0, delta0);
+
+%% Impostazioni per la simulazione con RK2
+T_final = 20;           % tempo finale della simulazione (s)
+dt = 0.01;              % passo fisso
+t = 0:dt:T_final;
+N = length(t);
+
+% Preallocazione vettori di soluzione e di input di controllo
+X = zeros(3, N);  % X(:,i) = [ρ; γ; δ] al tempo t(i)
+X(:,1) = x0;
+v_sol = zeros(N,1);
+omega_sol = zeros(N,1);
+
+%% Integrazione con RK2 (metodo del punto medio)
+for i = 1:N-1
+    % Stato corrente
+    x_current = X(:,i);
+    
+    % Calcolo k1
+    k1_val = polarDynamics(x_current, k1, k2, k3);
+    
+    % Stato di mezzo
+    x_mid = x_current + 0.5 * dt * k1_val;
+    
+    % Calcolo k2 al tempo t + dt/2
+    k2_val = polarDynamics(x_mid, k1, k2, k3);
+    
+    % Aggiornamento con RK2
+    X(:,i+1) = x_current + dt * k2_val;
+    
+    % Calcolo dei comandi di controllo per debug
+    rho_i = X(1,i);
+    gamma_i = X(2,i);
+    delta_i = X(3,i);
+    if abs(gamma_i) < 1e-9
+        gamma_temp = sign(gamma_i)*1e-9;
+    else
+        gamma_temp = gamma_i;
+    end
+    v_sol(i) = k1 * rho_i * cos(gamma_i);
+    omega_sol(i) = k2 * gamma_i + k1 * sin(gamma_i)*cos(gamma_i) * (1 + k3*(delta_i/gamma_temp));
+end
+v_sol(end) = v_sol(end-1);
+omega_sol(end) = omega_sol(end-1);
+
+%% Estrazione delle soluzioni in coordinate polari
+rho_sol   = X(1,:)';
+gamma_sol = X(2,:)';
+delta_sol = X(3,:)';
+
+%% Calcolo della funzione candidata di Lyapunov e sua derivata (differenze finite)
+V = 0.5*(rho_sol.^2 + gamma_sol.^2 + delta_sol.^2);
+Vdot = [0; diff(V)./diff(t')];
+
+%% Debug: stampa e analisi per la stabilità
+final_rho   = rho_sol(end);
+final_gamma = gamma_sol(end);
+final_delta = delta_sol(end);
+fprintf('Stato finale in coordinate polari:\n');
+fprintf('  ρ   = %.6f\n', final_rho);
+fprintf('  γ   = %.6f\n', final_gamma);
+fprintf('  δ   = %.6f\n', final_delta);
+V_final = V(end);
+fprintf('Valore finale della funzione di Lyapunov V = %.6f\n', V_final);
+mean_Vdot = mean(Vdot);
+fprintf('Media di V_dot = %.6f\n', mean_Vdot);
+if mean_Vdot < 0
+    fprintf('-> Stabilità numerica verificata: V decresce in media.\n\n');
+else
+    fprintf('-> Attenzione: la media di V_dot non è negativa, controllare i guadagni.\n\n');
+end
+
+%% Debug: verifica di singolarità (ρ == 0)
+idx = find(abs(rho_sol) < 1e-7, 1, 'first');
+if ~isempty(idx)
+    fprintf('[DEBUG] Singolarità: ρ = 0 rilevato al tempo t = %.4f s.\n', t(idx));
+else
+    fprintf('Nessuna singolarità (ρ == 0) rilevata nella simulazione.\n\n');
+end
+
+%% Plot degli errori: evoluzione di ρ, γ, δ nel tempo
+figure;
+subplot(3,1,1);
+plot(t, rho_sol, 'LineWidth',2);
+xlabel('Tempo [s]');
+ylabel('ρ [m]');
+title('Evoluzione di ρ');
+grid on;
+
+subplot(3,1,2);
+plot(t, gamma_sol, 'LineWidth',2);
+xlabel('Tempo [s]');
+ylabel('γ [rad]');
+title('Evoluzione di γ');
+grid on;
+
+subplot(3,1,3);
+plot(t, delta_sol, 'LineWidth',2);
+xlabel('Tempo [s]');
+ylabel('δ [rad]');
+title('Evoluzione di δ');
+grid on;
+
+%% Plot degli input di controllo: v e ω nel tempo
+figure;
+subplot(2,1,1);
+plot(t, v_sol, 'LineWidth',2);
+xlabel('Tempo [s]');
+ylabel('v [m/s]');
+title('Comando lineare v');
+grid on;
+
+subplot(2,1,2);
+plot(t, omega_sol, 'LineWidth',2);
+xlabel('Tempo [s]');
+ylabel('ω [rad/s]');
+title('Comando angolare ω');
+grid on;
+
+%% Plot della funzione di Lyapunov
+figure;
+plot(t, V, 'LineWidth',2); hold on;
+plot(t, Vdot, 'r--','LineWidth',1.5);
+xlabel('Tempo [s]');
+ylabel('Valore');
+title('Funzione di Lyapunov V e sua derivata approssimata V\_dot', 'Interpreter','none');
+legend('V(t)','V\_dot(t)');
+grid on;
+
+%% Calcolo della traiettoria in coordinate cartesiane
+% Ricostruiamo le coordinate (x,y) partendo da ρ e da δ.
+% Poiché δ funge da angolo per la posizione:
+
+%   x = ρ * cos(δ)
+%   y = ρ * sin(δ)
+x_cart = rho_sol .* cos(delta_sol);
+y_cart = rho_sol .* sin(delta_sol);
+
+%% Plot della traiettoria dal punto iniziale a quello finale (modello)
+figure;
+plot(x_cart, y_cart, 'b-', 'LineWidth',2); hold on;
+plot(x_cart(1), y_cart(1), 'go', 'MarkerSize',10, 'LineWidth',2,'Color','black');   % punto iniziale
+plot(x_cart(end), y_cart(end), 'ro', 'MarkerSize',10, 'LineWidth',2); % punto finale
+xlabel('x [m]');
+ylabel('y [m]');
+title('Traiettoria del modello dal punto iniziale al punto finale');
+legend('Traiettoria', 'Inizio', 'Fine','Location','Best');
+grid on;
+axis equal;
+
+
+
+hold on;
+
+% Posizione iniziale
+x_i = x_cart(1);
+y_i = y_cart(1);
+theta_i = delta_sol(1); % iniziale
+
+% Freccia orientamento iniziale
+quiver(x_i, y_i, cos(theta_i), sin(theta_i), 0.5, 'black', 'LineWidth', 2, 'MaxHeadSize', 2);
+
+% Testo iniziale (spostato per non sovrapporsi)
+text(x_i + 0.3, y_i + 0.3, sprintf('x_i=%.2f, y_i=%.2f', x_i, y_i),...
+    'FontSize', 10, 'FontWeight', 'bold', 'Color','black');
+text(x_i + 0.3, y_i + 0.6, sprintf('\\theta_i=%.2f rad', theta_i),...
+    'FontSize', 10, 'Color', 'black', 'FontWeight', 'bold');
+
+% Posizione finale
+x_f = x_cart(end);
+y_f = y_cart(end);
+theta_f = delta_sol(end); % finale
+
+% Freccia orientamento finale
+quiver(x_f, y_f, cos(theta_f), sin(theta_f), 0.5, 'r', 'LineWidth', 2, 'MaxHeadSize', 2);
+
+% Testo finale (spostato per non sovrapporsi)
+text(x_f + 0.3, y_f + 0.3, sprintf('x_f=%.2f, y_f=%.2f', x_f, y_f),...
+    'FontSize', 10, 'FontWeight', 'bold', 'Color','r');
+text(x_f + 0.3, y_f + 0.6, sprintf('\\theta_f=%.2f rad', theta_f),...
+    'FontSize', 10, 'Color', 'r', 'FontWeight', 'bold');
+
+legend('Traiettoria', 'Inizio', 'Fine', '\theta iniziale', '\theta finale', 'Location', 'best');
+
+
+
+%% Funzione locale: dinamica in coordinate polari
+function xdot = polarDynamics(x, k1, k2, k3)
+    % x = [ρ; γ; δ]
+    rho   = x(1);
+    gamma = x(2);
+    delta = x(3);
+    
+    % Prevenzione: evita divisioni per zero
+    if abs(rho) < 1e-9
+        xdot = [0; 0; 0];
+        return;
+    end
+    if abs(gamma) < 1e-9
+        gamma = sign(gamma)*1e-9;  % artificio numerico per evitare divisione per zero
+    end
+    
+    % Legge di controllo:
+    %    v     = k1 * ρ * cos(γ)
+    %    ω     = k2 * γ + k1 * sin(γ)*cos(γ) * (1 + k3*(δ/γ))
+    v = k1 * rho * cos(gamma);
+    omega = k2 * gamma + k1 * sin(gamma)*cos(gamma) * (1 + k3*(delta/gamma));
+    
+    % Equazioni cinematiche in coordinate polari:
+    %    dot(ρ)   = -v*cos(γ)
+    %    dot(γ)   = (v*sin(γ))/ρ - ω
+    %    dot(δ)   = (v*sin(γ))/ρ
+    rho_dot = - v * cos(gamma);
+    gamma_dot = (v * sin(gamma))/rho - omega;
+    delta_dot = (v * sin(gamma))/rho;
+    
+    xdot = [rho_dot; gamma_dot; delta_dot];
+end
