@@ -1,0 +1,115 @@
+clc; clear; close all;
+
+%% 1. Configurazioni iniziale e finale
+q0 = [0, 0, 0];      % Posa iniziale
+v0 = 1;              % Velocità iniziale
+vf = 1;              % Velocità finale
+
+% Configurazione finale normalizzata
+rng('shuffle');
+qf_raw = rand(1,3);
+qf = qf_raw / norm(qf_raw);
+xf = qf(1); yf = qf(2); thetaf = qf(3);
+x0 = q0(1); y0 = q0(2); theta0 = q0(3);
+
+% Derivate tangenziali iniziali e finali
+dx0 = v0 * cos(theta0);
+dy0 = v0 * sin(theta0);
+dxf = vf * cos(thetaf);
+dyf = vf * sin(thetaf);
+
+%% 2. Polinomi cubici in forma chiusa (flatness-style)
+s = linspace(0, 1, 200); % parametro s ∈ [0,1]
+
+% x(s)
+a0 = x0;
+a1 = dx0;
+a2 = 3*(xf - x0) - 2*dx0 - dxf;
+a3 = -2*(xf - x0) + dx0 + dxf;
+x = a0 + a1*s + a2*s.^2 + a3*s.^3;
+
+% y(s)
+b0 = y0;
+b1 = dy0;
+b2 = 3*(yf - y0) - 2*dy0 - dyf;
+b3 = -2*(yf - y0) + dy0 + dyf;
+y = b0 + b1*s + b2*s.^2 + b3*s.^3;
+
+% Derivate (rispetto a s)
+dx_ds = a1 + 2*a2*s + 3*a3*s.^2;
+dy_ds = b1 + 2*b2*s + 3*b3*s.^2;
+ddx_ds = 2*a2 + 6*a3*s;
+ddy_ds = 2*b2 + 6*b3*s;
+
+% Orientamento istantaneo θ(s)
+theta = atan2(dy_ds, dx_ds);
+
+% Velocità lineare e angolare con T = 1
+v_s = sqrt(dx_ds.^2 + dy_ds.^2);
+omega_s = (dy_ds .* ddx_ds - dx_ds .* ddy_ds) ./ (dx_ds.^2 + dy_ds.^2);
+
+%% 3. Uniform scaling temporale
+v_limit = 0.5;
+omega_limit = 2;
+
+T_v = max(v_s) / v_limit;
+T_w = max(abs(omega_s)) / omega_limit;
+T = max([T_v, T_w, 1]);
+
+% Tempo reale
+t = s * T;
+
+% Velocità scalate
+v = v_s / T;
+omega = omega_s / T;
+
+%% 4. Plot 
+figure;
+plot(x, y, 'b', 'LineWidth', 2); hold on;
+plot(x0, y0, 'go', 'MarkerFaceColor', 'g');
+plot(xf, yf, 'ro', 'MarkerFaceColor', 'r');
+
+% Freccia orientamento finale
+arrow_scale = 0.1;
+quiver(x(end), y(end), arrow_scale * cos(thetaf), arrow_scale * sin(thetaf),0, 'r', 'LineWidth', 2, 'MaxHeadSize', 2);
+text(x(end)+0.05, y(end), sprintf('\\theta_f = %.2f rad', thetaf), 'Color', 'r', 'FontSize', 10);
+text(x(end)+0.05, y(end)-0.05, sprintf('x_f = %.2f, y_f = %.2f', xf, yf), 'Color', 'k', 'FontSize', 10);
+
+xlabel('x [m]'); ylabel('y [m]'); axis equal; grid on;
+title('Traiettoria');
+legend('Traiettoria', 'Start', 'Finish','Theta_f','Location', 'southeast');
+
+
+%% 6. Plot velocità lineare e angolare
+figure;
+subplot(2,1,1);
+plot(t, v, 'b', 'LineWidth', 2);
+yline(v_limit, 'r--', 'Max \upsilon');
+xlabel('t [s]'); ylabel('\upsilon(t) [m/s]');
+title('Velocità lineare'); grid on;
+
+subplot(2,1,2);
+plot(t, omega, 'b', 'LineWidth', 2);
+yline(omega_limit, 'r--', 'Max \omega');
+xlabel('t [s]'); ylabel('\omega(t) [rad/s]');
+title('Velocità angolare'); grid on;
+
+%% 7. Tabella riassuntiva [x, y, v, omega, theta]
+fprintf('\n%8s %8s %8s %8s %8s %8s\n', ...
+        'Tempo[s]', 'x[m]', 'y[m]', 'v[m/s]', 'ω[rad/s]', 'θ[rad]');
+fprintf(repmat('-', 1, 60)); fprintf('\n');
+
+step = 20;
+for i = 1:step:length(t)
+ theta_inst = atan2(dy_ds(i), dx_ds(i));
+fprintf('%8.2f %8.3f %8.3f %8.3f %8.3f %8.3f\n', ...
+    t(i), x(i), y(i), v(i), omega(i), theta_inst);
+
+end
+
+%% 8. Tempo finale 
+disp('Configurazione finale normalizzata:');
+disp(qf);
+fprintf('\nTempo totale T = %.2f s\n', T);
+
+
