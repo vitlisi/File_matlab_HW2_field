@@ -1,0 +1,159 @@
+clc; clear; close all;
+
+%% Parametri
+alpha = 2;
+r = 5;  % puoi cambiarlo per test con ordine di grandezza diverso
+omega = alpha + 1;
+T = 4*pi / omega;
+fprintf('T = %.4f s\n', T);
+
+% Tempo per la simulazione
+t = linspace(0, T, 500); %500 punti tra 0 e T
+
+%% Lemniscata di Bernoulli
+x_d = (r * cos(omega * t)) ./ (1 + sin(omega * t).^2);
+y_d = (r * cos(omega * t) .* sin(omega * t)) ./ (1 + sin(omega * t).^2);
+
+% Punto iniziale desiderato (t=0)
+x0_des = x_d(1);
+y0_des = y_d(1);
+
+% Genera punto iniziale casuale entro 0.5m di distanza
+theta_rand = 2 * pi * rand();       % angolo casuale
+r_rand = 0.5 * rand();              % raggio entro 0.5m
+x0_rand = x0_des + r_rand * cos(theta_rand);
+y0_rand = y0_des + r_rand * sin(theta_rand);
+
+%% Derivate della traiettoria (velocità desiderate) e orientamento
+dt = t(2) - t(1);  % passo temporale
+dx_d = gradient(x_d, dt);
+dy_d = gradient(y_d, dt);
+theta_d = atan2(dy_d, dx_d);  % angolo della tangente alla traiettoria
+v_d = sqrt(dx_d.^2 + dy_d.^2);
+omega_d = [diff(theta_d) 0] / dt;
+
+%% Parametro b (distanza dal centro al punto B)
+b = 0.2;
+
+% Coordinate del punto B desiderato
+xB_d = x_d + b * cos(theta_d);
+yB_d = y_d + b * sin(theta_d);
+dxB_d = gradient(xB_d, dt);
+dyB_d = gradient(yB_d, dt);
+
+%% Inizializzazione stato
+x = zeros(size(t)); y = zeros(size(t)); theta = zeros(size(t));
+x(1) = x0_rand;
+y(1) = y0_rand;
+theta(1) = theta_d(1);
+
+% Logging
+xB = zeros(size(t)); yB = zeros(size(t));
+v = zeros(size(t)); omega = zeros(size(t));
+
+% Guadagni PD
+k1 = 5; k2 = 5;
+
+for i = 1:length(t)-1
+    % Stato attuale punto B
+    xB(i) = x(i) + b * cos(theta(i));
+    yB(i) = y(i) + b * sin(theta(i));
+
+    % Controllo PD
+    u1 = dxB_d(i) + k1 * (xB_d(i) - xB(i));
+    u2 = dyB_d(i) + k2 * (yB_d(i) - yB(i));
+
+    % Jacobiana
+    J = [cos(theta(i)), -b * sin(theta(i));
+         sin(theta(i)),  b * cos(theta(i))];
+    u = J \ [u1; u2];
+
+    % Comandi
+    v(i) = u(1);
+    omega(i) = u(2);
+
+    % Integrazione
+    x(i+1) = x(i) + dt * v(i) * cos(theta(i));
+    y(i+1) = y(i) + dt * v(i) * sin(theta(i));
+    theta(i+1) = theta(i) + dt * omega(i);
+end
+
+xB(end) = x(end) + b * cos(theta(end));
+yB(end) = y(end) + b * sin(theta(end));
+
+%% Plot errore
+err = sqrt((xB - xB_d).^2 + (yB - yB_d).^2);
+figure;
+plot(t, err, 'LineWidth', 1.5);
+xlabel('Tempo [s]'); ylabel('Errore [m]');
+title('Errore di tracking del punto B');
+grid on;
+
+%% Plot lemniscata + tracking
+figure('Position', [100, 100, 1000, 600]);  % Aumenta dimensione finestra
+
+tiledlayout(2,1,'TileSpacing','compact','Padding','compact');  % Usa tiledlayout
+
+% --- Primo grafico: Lemniscata e stato iniziale ---
+nexttile;
+plot(x_d, y_d, 'b', 'LineWidth', 2); hold on;
+scatter(x0_des, y0_des, 100, 'k', 'filled');
+scatter(x0_rand, y0_rand, 100, 'm', 'filled');
+viscircles([x0_des, y0_des], 0.5, 'LineStyle','--', 'LineWidth', 1, 'Color','k');
+legend(["Traiettoria lemniscata", ...
+        "Punto iniziale desiderato", ...
+        "Posizione iniziale random", ...
+        "Distanza max (0.5 m)"], ...
+        'FontSize', 11, 'Location', 'northeastoutside');
+xlabel('x', 'FontSize', 13); ylabel('y', 'FontSize', 13);
+title('Lemniscata e stato iniziale random', 'FontSize', 15);
+axis equal; grid on;
+
+% --- Secondo grafico: Tracking ---
+nexttile;
+plot(xB_d, yB_d, 'k--', 'LineWidth', 2); hold on;
+plot(xB, yB, 'r', 'LineWidth', 2);
+scatter(xB(1), yB(1), 100, 'g', 'filled');
+viscircles([x0_des, y0_des], 0.5, 'LineStyle','--', 'LineWidth', 1, 'Color','k');
+legend(["Radius 0.5 m", ...
+        "Traiettoria seguita", ...
+        "Start tracking", ...
+        "Distanza max (0.5 m)"], ...
+        'FontSize', 11, 'Location', 'northeastoutside');
+xlabel('x_B', 'FontSize', 13); ylabel('y_B', 'FontSize', 13);
+title(['Tracking I/O linearization r = ', num2str(r)], 'FontSize', 15);
+axis equal; grid on;
+
+
+
+%% Plot comandi
+figure;
+
+subplot(2,1,1);
+plot(t, v, 'LineWidth', 2);
+xlabel('Tempo [s]', 'FontSize', 12);
+ylabel('v [m/s]', 'FontSize', 12);
+title('Velocità lineare v(t)', 'FontSize', 14);
+grid on;
+
+subplot(2,1,2);
+plot(t, omega, 'LineWidth', 2);
+xlabel('Tempo [s]', 'FontSize', 12);
+ylabel('\omega [rad/s]', 'FontSize', 12);
+title('Velocità angolare \omega(t)', 'FontSize', 14);
+grid on;
+
+%% Analisi lunghezza
+ds = sqrt(diff(x_d).^2 + diff(y_d).^2);
+lunghezza_traiettoria = sum(ds);
+fprintf('Lunghezza totale della lemniscata: %.2f m\n', lunghezza_traiettoria);
+v_media = lunghezza_traiettoria / T;
+fprintf('Velocità media necessaria: %.2f m/s\n', v_media);
+
+
+
+% Vettori per logging velocità
+v_log = zeros(1, length(t));
+omega_log = zeros(1, length(t));
+
+
