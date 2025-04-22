@@ -1,0 +1,143 @@
+clc; clear; close all;
+
+%% === Traiettoria di riferimento 
+q0 = [0, 0, 0]; 
+v0 = 1; 
+vf = 1;
+rng('shuffle');
+qf_raw = rand(1,3); 
+qf = qf_raw / norm(qf_raw);
+
+xf = qf(1); 
+yf = qf(2); 
+thetaf = qf(3);
+
+s = linspace(0,1,200);
+a0 = q0(1); a1 = v0 * cos(q0(3));
+a2 = 3*(xf - a0) - 2*a1 - vf*cos(thetaf);
+a3 = -2*(xf - a0) + a1 + vf*cos(thetaf);
+x_d = a0 + a1*s + a2*s.^2 + a3*s.^3;
+
+b0 = q0(2); b1 = v0 * sin(q0(3));
+b2 = 3*(yf - b0) - 2*b1 - vf*sin(thetaf);
+b3 = -2*(yf - b0) + b1 + vf*sin(thetaf);
+y_d = b0 + b1*s + b2*s.^2 + b3*s.^3;
+
+dx_ds = a1 + 2*a2*s + 3*a3*s.^2;
+dy_ds = b1 + 2*b2*s + 3*b3*s.^2;
+theta_d = atan2(dy_ds, dx_ds);
+v_d = sqrt(dx_ds.^2 + dy_ds.^2);
+omega_d = [diff(theta_d) 0] / (s(2)-s(1));
+
+% Scaling
+v_lim = 0.5; omega_lim = 2;
+T_v = max(v_d)/v_lim;
+T_w = max(abs(omega_d))/omega_lim;
+T = max([T_v, T_w, 1]);
+
+t = s * T;
+dt = t(2) - t(1);
+
+%% === Setup test con diversi valori di b ===
+B_vals = [-0.1 0.02, 0.5, 1.0];
+y1_sim = cell(1,length(B_vals));
+y2_sim = cell(1,length(B_vals));
+err = cell(1,length(B_vals));
+v_all = cell(1,length(B_vals));
+omega_all = cell(1,length(B_vals));
+theta_all = cell(1,length(B_vals));
+
+k1 = 5; k2 = 5;
+
+for idx = 1:length(B_vals)
+    b = B_vals(idx);
+
+    % Traiettoria desiderata del punto B
+    y1_d = x_d + b * cos(theta_d);
+    y2_d = y_d + b * sin(theta_d);
+    dy1_d = [diff(y1_d) 0]/dt;
+    dy2_d = [diff(y2_d) 0]/dt;
+
+    % Inizializzazione stato
+    x = zeros(size(t)); y = zeros(size(t)); theta = zeros(size(t));
+    x(1) = q0(1); y(1) = q0(2); theta(1) = q0(3);
+    v = zeros(size(t)); omega = zeros(size(t));
+    y1 = zeros(size(t)); y2 = zeros(size(t));
+
+    for i = 1:length(t)-1
+        % Stato attuale del punto B
+        y1(i) = x(i) + b * cos(theta(i));
+        y2(i) = y(i) + b * sin(theta(i));
+
+        % Controllo PD
+        u1 = dy1_d(i) + k1*(y1_d(i) - y1(i));
+        u2 = dy2_d(i) + k2*(y2_d(i) - y2(i));
+
+        % Inversione del modello
+        T_theta = [cos(theta(i)), -b*sin(theta(i));
+                   sin(theta(i)),  b*cos(theta(i))];
+        uv = T_theta \ [u1; u2];
+
+        v(i) = uv(1);
+        omega(i) = uv(2);
+
+        % Integrazione del robot
+        x(i+1) = x(i) + dt * v(i) * cos(theta(i));
+        y(i+1) = y(i) + dt * v(i) * sin(theta(i));
+        theta(i+1) = theta(i) + dt * omega(i);
+    end
+
+    % Ultimo punto e salvataggio
+    y1(end) = x(end) + b * cos(theta(end));
+    y2(end) = y(end) + b * sin(theta(end));
+    v(end) = v(end-1);
+    omega(end) = omega(end-1);
+    theta(end) = theta(end-1);
+
+    y1_sim{idx} = y1;
+    y2_sim{idx} = y2;
+    err{idx} = sqrt((y1 - y1_d).^2 + (y2 - y2_d).^2);
+    v_all{idx} = v;
+    omega_all{idx} = omega;
+    theta_all{idx} = theta;
+end
+
+%% === PLOT: Traiettoria del punto B
+figure; hold on;
+for idx = 1:length(B_vals)
+    plot(y1_sim{idx}, y2_sim{idx}, '--', 'LineWidth', 1.5, 'DisplayName', ['b = ' num2str(B_vals(idx))]);
+end
+y1_ref = x_d + B_vals(2)*cos(theta_d);
+y2_ref = y_d + B_vals(2)*sin(theta_d);
+plot(y1_ref, y2_ref, 'k', 'LineWidth', 2, 'DisplayName', 'Traiettoria desiderata');
+xlabel('x_B'); ylabel('y_B'); title('Tracking punto B'); legend; grid on; axis equal;
+
+%% === PLOT: Errore di tracking
+figure; hold on;
+for idx = 1:length(B_vals)
+    plot(t, err{idx}, 'LineWidth', 1.5, 'DisplayName', ['b = ' num2str(B_vals(idx))]);
+end
+xlabel('t [s]'); ylabel('Errore [m]');
+title('Errore di tracking del punto B');
+legend(); grid on;
+
+%% === PLOT: v(t), omega(t), theta(t) per ogni b
+figure;
+
+subplot(3,1,1); hold on;
+for idx = 1:length(B_vals)
+    plot(t, v_all{idx}, 'LineWidth', 1.5, 'DisplayName', ['b = ' num2str(B_vals(idx))]);
+end
+title('Velocità lineare v(t)'); ylabel('v [m/s]'); grid on; legend('Location','best');
+
+subplot(3,1,2); hold on;
+for idx = 1:length(B_vals)
+    plot(t, omega_all{idx}, 'LineWidth', 1.5, 'DisplayName', ['b = ' num2str(B_vals(idx))]);
+end
+title('Velocità angolare \omega(t)'); ylabel('\omega [rad/s]'); grid on; legend('Location','best');
+
+subplot(3,1,3); hold on;
+for idx = 1:length(B_vals)
+    plot(t, theta_all{idx}, 'LineWidth', 1.5, 'DisplayName', ['b = ' num2str(B_vals(idx))]);
+end
+title('Orientamento \theta(t)'); xlabel('t [s]'); ylabel('\theta [rad]'); grid on; legend('Location','best');
