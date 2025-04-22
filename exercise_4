@@ -9,13 +9,14 @@ k3 = 0.5;
 %% Configurazione iniziale e conversione in coordinate polari
 % Per esercizio 4: α = 6
 alpha_digit = 2;
-q_i = [alpha_digit + 1; 1; pi/4];   % q_i = [8; 1; π/4]
+q_i = [alpha_digit + 1; 1; pi/4];   % q_i = [3; 1; π/4]
 q_f = [0; 0; 0];                    % configurazione finale
 
 % Estrazione delle coordinate cartesiane iniziali
 x_i = q_i(1);
 y_i = q_i(2);
 theta_i = q_i(3);
+
 
 % Conversione in coordinate polari:
 %     ρ = sqrt(x^2 + y^2)
@@ -151,7 +152,7 @@ grid on;
 %% Plot della funzione di Lyapunov
 figure;
 plot(t, V, 'LineWidth',2); hold on;
-plot(t, Vdot, 'r--','LineWidth',1.5);
+plot(t, Vdot, 'black--','LineWidth',2);
 xlabel('Tempo [s]');
 ylabel('Valore');
 title('Funzione di Lyapunov V e sua derivata approssimata V\_dot', 'Interpreter','none');
@@ -247,3 +248,4 @@ function xdot = polarDynamics(x, k1, k2, k3)
     
     xdot = [rho_dot; gamma_dot; delta_dot];
 end
+
