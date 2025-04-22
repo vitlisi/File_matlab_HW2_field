@@ -1,0 +1,102 @@
+
+clc; clear; close all;
+
+%% Parametri
+alpha = 2;
+zeta = 0.7;
+r = 1;
+omega = alpha + 1;
+T = 4 * pi / omega;
+t = linspace(0, T, 600);
+dt = t(2) - t(1);
+
+%% Lemniscata
+x_d = (r * cos(omega * t)) ./ (1 + sin(omega * t).^2);
+y_d = (r * cos(omega * t) .* sin(omega * t)) ./ (1 + sin(omega * t).^2);
+dx_d = gradient(x_d, dt);
+dy_d = gradient(y_d, dt);
+theta_d = atan2(dy_d, dx_d);
+v_d = sqrt(dx_d.^2 + dy_d.^2);
+omega_d = [diff(theta_d), 0] / dt;
+
+%% Stato iniziale random
+x0_des = x_d(1); y0_des = y_d(1);
+theta_rand = 2 * pi * rand(); r_rand = 0.25 * rand();  % entro 0.25 m
+x0_rand = x0_des + r_rand * cos(theta_rand);
+y0_rand = y0_des + r_rand * sin(theta_rand);
+
+%% Inizializzazione stato
+x = zeros(size(t)); y = zeros(size(t)); th = zeros(size(t));
+x(1) = x0_rand; y(1) = y0_rand; th(1) = theta_d(1);
+
+v = zeros(size(t)); omega = zeros(size(t));
+k2_log = zeros(size(t));
+e1_log = zeros(size(t)); e2_log = zeros(size(t)); e3_log = zeros(size(t));
+
+%% Guadagni
+k1 = 2*zeta*alpha;
+k3 = 2*zeta*alpha;
+
+%% Simulazione
+for i = 1:length(t)-1
+    R = [cos(th(i)), sin(th(i)); -sin(th(i)), cos(th(i))];
+    e_pos = R * ([x_d(i); y_d(i)] - [x(i); y(i)]);
+    e1 = e_pos(1); e2 = e_pos(2);
+    e3 = wrapToPi(theta_d(i) - th(i));
+
+    vd_safe = max(v_d(i), 0.05);  % evita problemi di divisione
+    k2_t = (alpha^2 - omega_d(i)) / vd_safe;
+
+    v(i) = v_d(i) * cos(e3) + k1 * e1;
+    omega(i) = omega_d(i) + k2_t * v_d(i) * e2 + k3 * e3;
+
+    x(i+1) = x(i) + dt * v(i) * cos(th(i));
+    y(i+1) = y(i) + dt * v(i) * sin(th(i));
+    th(i+1) = th(i) + dt * omega(i);
+
+    % Log
+    e1_log(i) = e1;
+    e2_log(i) = e2;
+    e3_log(i) = e3;
+    k2_log(i) = k2_t;
+end
+
+v(end) = v(end-1); omega(end) = omega(end-1);
+e1_log(end) = e1_log(end-1); e2_log(end) = e2_log(end-1); e3_log(end) = e3_log(end-1);
+k2_log(end) = k2_log(end-1);
+
+%% Plot errori
+figure;
+subplot(3,1,1); plot(t, e1_log, 'LineWidth', 1.5); ylabel('e_1 [m]'); grid on
+subplot(3,1,2); plot(t, e2_log, 'LineWidth', 1.5); ylabel('e_2 [m]'); grid on
+subplot(3,1,3); plot(t, e3_log, 'LineWidth', 1.5); ylabel('e_3 [rad]'); xlabel('Tempo [s]'); grid on
+sgtitle('Errori nel frame del robot');
+
+%% Plot comandi
+figure;
+subplot(2,1,1); plot(t, v, 'LineWidth', 1.5); ylabel('v [m/s]'); grid on
+subplot(2,1,2); plot(t, omega, 'LineWidth', 1.5); ylabel('\omega [rad/s]'); xlabel('Tempo [s]'); grid on
+sgtitle('Comandi v(t) e \omega(t)');
+
+%% Plot k2(t)
+%figure;
+%plot(t, k2_log, 'LineWidth', 1.5); grid on;
+%xlabel('Tempo [s]'); ylabel('k_2(t)');
+%title('Andamento temporale di k_2(t)');
+
+%% Plot traiettoria
+figure;
+plot(x_d, y_d, 'k--', 'LineWidth', 2); hold on;
+plot(x, y, 'r', 'LineWidth', 2);
+scatter(x(1), y(1), 80, 'g', 'filled');
+viscircles([x0_des, y0_des], 0.25, 'LineStyle','--', 'LineWidth', 1, 'Color','k');
+legend('Traiettoria desiderata', 'Traiettoria seguita', 'Start');
+xlabel('x'); ylabel('y'); axis equal; grid on;
+title('Tracking con approximate linearization');
+
+%% Plot errore totale
+err = sqrt((x - x_d).^2 + (y - y_d).^2);
+figure;
+plot(t, err, 'LineWidth', 1.5); grid on;
+xlabel('Tempo [s]'); ylabel('Errore [m]');
+title('Errore euclideo di tracking');
